@@ -1,3 +1,21 @@
+name: Update Zeni Catalogue
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  update-steam-catalogue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download Steam app list
         run: |
           set -e
@@ -27,17 +45,25 @@
               )
 
           try:
-              data = json.loads(raw.decode("utf-8"))
+              data = json.loads(
+                  raw.decode("utf-8")
+              )
           except Exception as error:
               print(
                   "Steam returned invalid JSON."
               )
+
               print(
-                  raw[:500].decode(
+                  raw[:1000].decode(
                       "utf-8",
                       errors="replace"
                   )
               )
+
+              print(
+                  f"JSON error: {error}"
+              )
+
               raise SystemExit(1)
 
           apps = (
@@ -46,9 +72,14 @@
               .get("apps")
           )
 
-          if not isinstance(apps, list) or not apps:
+          if not isinstance(apps, list):
               raise SystemExit(
-                  "Steam returned no applications."
+                  "Steam response does not contain an app list."
+              )
+
+          if not apps:
+              raise SystemExit(
+                  "Steam returned an empty app list."
               )
 
           with open(
@@ -66,3 +97,235 @@
               f"Downloaded {len(apps)} Steam applications."
           )
           PY
+
+      - name: Validate Steam app list
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path(
+              "steam-apps.json"
+          )
+
+          if not source.exists():
+              print(
+                  "steam-apps.json does not exist."
+              )
+              raise SystemExit(1)
+
+          if source.stat().st_size == 0:
+              print(
+                  "steam-apps.json is empty."
+              )
+              raise SystemExit(1)
+
+          try:
+              with source.open(
+                  "r",
+                  encoding="utf-8"
+              ) as file:
+                  data = json.load(file)
+
+          except Exception as error:
+              print(
+                  "steam-apps.json is not valid JSON."
+              )
+              print(error)
+              raise SystemExit(1)
+
+          apps = (
+              data
+              .get("applist", {})
+              .get("apps")
+          )
+
+          if not isinstance(apps, list):
+              print(
+                  "Steam response does not contain a valid app list."
+              )
+              raise SystemExit(1)
+
+          if not apps:
+              print(
+                  "Steam app list is empty."
+              )
+              raise SystemExit(1)
+
+          print(
+              f"Validated {len(apps)} Steam applications."
+          )
+          PY
+
+      - name: Generate Steam catalogue
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path(
+              "steam-apps.json"
+          )
+
+          output = Path(
+              "catalogue/zenith.json"
+          )
+
+          with source.open(
+              "r",
+              encoding="utf-8"
+          ) as file:
+              data = json.load(file)
+
+          apps = (
+              data
+              .get("applist", {})
+              .get("apps", [])
+          )
+
+          catalogue = []
+          seen = set()
+
+          for app in apps:
+              app_id = app.get(
+                  "appid"
+              )
+
+              name = app.get(
+                  "name"
+              )
+
+              if not app_id:
+                  continue
+
+              if not name:
+                  continue
+
+              name = name.strip()
+
+              if not name:
+                  continue
+
+              key = str(
+                  app_id
+              )
+
+              if key in seen:
+                  continue
+
+              seen.add(key)
+
+              catalogue.append(
+                  {
+                      "Id": f"steam.{key}",
+                      "Name": name,
+                      "Service": "Steam",
+                      "TrainerStatus": "NoTrainer"
+                  }
+              )
+
+          catalogue.sort(
+              key=lambda game:
+                  game["Name"].lower()
+          )
+
+          if not catalogue:
+              print(
+                  "Generated Steam catalogue is empty."
+              )
+              raise SystemExit(1)
+
+          output.parent.mkdir(
+              parents=True,
+              exist_ok=True
+          )
+
+          with output.open(
+              "w",
+              encoding="utf-8"
+          ) as file:
+              json.dump(
+                  catalogue,
+                  file,
+                  indent=2,
+                  ensure_ascii=False
+              )
+
+              file.write("\n")
+
+          print(
+              f"Generated {len(catalogue)} Steam games."
+          )
+          PY
+
+      - name: Update catalogue version
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          version_file = Path(
+              "version.json"
+          )
+
+          if version_file.exists():
+              try:
+                  with version_file.open(
+                      "r",
+                      encoding="utf-8"
+                  ) as file:
+                      data = json.load(file)
+
+                  version = int(
+                      data.get(
+                          "version",
+                          0
+                      )
+                  )
+
+              except Exception:
+                  version = 0
+
+          else:
+              version = 0
+
+          version += 1
+
+          with version_file.open(
+              "w",
+              encoding="utf-8"
+          ) as file:
+              json.dump(
+                  {
+                      "version": version
+                  },
+                  file,
+                  indent=2
+              )
+
+              file.write("\n")
+
+          print(
+              f"Catalogue version: {version}"
+          )
+          PY
+
+      - name: Remove temporary files
+        run: |
+          rm -f steam-apps.json
+
+      - name: Commit catalogue changes
+        run: |
+          git config user.name "Zeni Catalogue Bot"
+          git config user.email "actions@users.noreply.github.com"
+
+          git add catalogue/zenith.json version.json
+
+          if git diff --cached --quiet; then
+            echo "No catalogue changes."
+            exit 0
+          fi
+
+          git commit -m "Update Steam catalogue"
+
+          git push
