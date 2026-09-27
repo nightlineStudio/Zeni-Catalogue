@@ -1,1 +1,20 @@
-few
+[
+  {
+    "Id": "steam.cyberpunk2077",
+    "Name": "Cyberpunk 2077",
+    "Service": "Steam",
+    "TrainerStatus": "TrainerAvailable"
+  },
+  {
+    "Id": "steam.reddeadredemption2",
+    "Name": "Red Dead Redemption 2",
+    "Service": "Steam",
+    "TrainerStatus": "TrainerAvailable"
+  },
+  {
+    "Id": "steam.grandtheftauto5",
+    "Name": "Grand Theft Auto V",
+    "Service": "Steam",
+    "TrainerStatus": "TrainerAvailable"
+  }
+]
